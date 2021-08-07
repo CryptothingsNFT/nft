@@ -1,0 +1,190 @@
+{
+    "bounce_fees": {
+        "base": 10000
+    },
+    "getters": "{
+        $validate = $asset =>{
+            $unitInfo = unit[$asset];
+            if (NOT $unitInfo.messages)
+                return false;
+            $schema = $unitInfo.authors[0].authentifiers
+                ? false
+                : $unitInfo.authors[0].address;
+            if (NOT $schema)
+                return false;
+            if ($schema != this_address)
+                return false;
+
+            return true;
+        };
+        $isValidQmHash = $hash=>{
+            $allowedChars = {
+                "1": true,
+                "2": true,
+                "3": true,
+                "4": true,
+                "5": true,
+                "6": true,
+                "7": true,
+                "8": true,
+                "9": true,
+                "A": true,
+                "B": true,
+                "C": true,
+                "D": true,
+                "E": true,
+                "F": true,
+                "G": true,
+                "H": true,
+                "J": true,
+                "K": true,
+                "L": true,
+                "M": true,
+                "N": true,
+                "P": true,
+                "Q": true,
+                "R": true,
+                "S": true,
+                "T": true,
+                "U": true,
+                "V": true,
+                "W": true,
+                "X": true,
+                "Y": true,
+                "Z": true,
+                "a": true,
+                "b": true,
+                "c": true,
+                "d": true,
+                "e": true,
+                "f": true,
+                "g": true,
+                "h": true,
+                "i": true,
+                "j": true,
+                "k": true,
+                "m": true,
+                "n": true,
+                "o": true,
+                "p": true,
+                "q": true,
+                "r": true,
+                "s": true,
+                "t": true,
+                "u": true,
+                "v": true,
+                "w": true,
+                "x": true,
+                "y": true,
+                "z": true
+            };
+            $prefix = substring($hash, 0, 2);
+            $payload = substring($hash, 2);
+            if ($prefix != "Qm")
+                return false;
+            if (length($payload) != 44)
+                return false;
+            return reduce(split($payload, ""), 44, ($acc, $x)=>$allowedChars[$x] AND $acc, true);
+        };
+    }",
+    "init": "{
+        $BOUNCER = "CFUQKRS37OGK4NDQRI6VHFNWTGHHAJAC";
+        $sendAsset = var[trigger.initial_address];
+        response["sendAsset"] = $sendAsset;
+        if (NOT $sendAsset AND NOT exists(trigger.data["title"]))
+            bounce("title field is mandatory");
+        if (trigger.data){
+            if (NOT exists(trigger.data["title"]))
+                bounce("title field is mandatory");
+            if (NOT exists(trigger.data["ipfs"]))
+                bounce("ipfs field is mandatory");
+            if (NOT exists(trigger.data["type"]))
+                bounce("type field is mandatory");
+            if (length(trigger.data["type"]) > 16)
+                bounce("type field must be shorter than 16 characters");
+            if (exists(trigger.data["ticker"])){
+                if (length(trigger.data["ticker"]) > 5)
+                    bounce("ticker field must be shorter than 5 characters");
+            }
+            if (NOT exists(trigger.data["copies"]))
+                bounce("copies field is mandatory");
+            if (NOT is_integer(trigger.data["copies"]))
+                bounce("copies field must be an integer");
+            if (trigger.data["copies"] < 1)
+                bounce("copies must be at least 1");
+            if (exists(trigger.data["royalty"])){
+                if (NOT is_integer(trigger.data["royalty"]))
+                    bounce("royalty field must be an integer");
+                if (trigger.data["royalty"] < 0)
+                    bounce("royalty cannot be negative");
+                if (trigger.data["royalty"] > 100)
+                    bounce("royalty can't be higher than 100");
+            }
+            if (NOT $isValidQmHash(trigger.data["ipfs"]))
+                bounce("IPFS hash is not a V0 CID");
+        }
+    }",
+    "messages": [
+        {
+            "app": "asset",
+            "if": "{exists(trigger.data["title"])}",
+            "payload": {
+                "cap": "{trigger.data["copies"]}",
+                "is_private": false,
+                "is_transferrable": true,
+                "auto_destroy": "{trigger.data["burn"]}",
+                "fixed_denominations": false,
+                "issued_by_definer_only": true,
+                "cosigned_by_definer": false,
+                "spender_attested": false
+            }
+        },
+        {
+            "app": "payment",
+            "payload": {
+                "asset": "base",
+                "outputs": [
+                    {
+                        "if": "{trigger.address == $BOUNCER}",
+                        "address": "{trigger.initial_address}"
+                    },
+                    {
+                        "if": "{trigger.address != $BOUNCER}",
+                        "address": "{$BOUNCER}",
+                        "amount": 1000
+                    }
+                ]
+            }
+        },
+        {
+            "if": "{$sendAsset}",
+            "app": "payment",
+            "payload": {
+                "asset": "{$sendAsset.asset}",
+                "outputs": [
+                    {
+                        "address": "{trigger.initial_address}",
+                        "amount": "{$sendAsset.cap}"
+                    }
+                ]
+            }
+        },
+        {
+            "if": "{$sendAsset}",
+            "app": "data",
+            "payload": {
+                "asset": "{$sendAsset.asset}",
+                "decimals": 0,
+                "name": "{$sendAsset.title}",
+                "issuer": "NFT_IPFS_CIDV0",
+                "ticker": "{$sendAsset.ticker}"
+            }
+        },
+        {
+            "app": "state",
+            "state": "{
+                var[trigger.initial_address] = exists(trigger.data["title"]) ? {asset: response_unit, cap: trigger.data["copies"], title: trigger.data["title"], ticker: trigger.data["ticker"]} : false;
+            }"
+        }
+    ]
+}
